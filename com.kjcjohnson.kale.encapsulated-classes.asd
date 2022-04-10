@@ -6,5 +6,5 @@
   :version "0.0.1"
   :author "Keith Johnson <kjcjohnson@ymail.com>"
   :license "MIT or Apache 2"
-  :depends-on ("trivial-package-local-nicknames")
+  :depends-on ("trivial-package-local-nicknames" "closer-mop")
   :components ((:file "encapsulated")))

@@ -169,14 +169,18 @@ What this does:
       (cond
         ;; Fields are direct declaration of slots
         ((eql (member-declaration-kind decl) :field)
-         (push (member-declaration-name decl) slots))
+         (if (member-declaration-static decl)
+             (push `(,(intern (member-declaration-name decl)) :allocation :class) slots)
+             (push (intern (member-declaration-name decl)) slots)))
 
         ;; Properties without getter/setter have a generated backing slot
         ;; Slots are in a different namespace, so we don't have to mangle the name
         ((eql (member-declaration-kind decl) :property)
          (when (null (member-declaration-rest decl))
-           (push (member-declaration-name decl) slots)))))
-    (map 'list #'intern slots)))
+           (if (member-declaration-static decl)
+               (push `(,(intern (member-declaration-name decl)) :allocation :class) slots)
+               (push (intern (member-declaration-name decl)) slots))))))
+    slots))
 
 
 (defun compute-encapsulated-class-options (options declarations)
@@ -203,35 +207,63 @@ What this does:
          ,@(let (exports wrappers)
              (dolist (member declarations)
                (when (eql (member-declaration-visibility member) :public)
-                 (let ((name (member-declaration-name member)))
-                   (push `(export ',(intern name class-package)
+                 (let ((m-name (member-declaration-name member)))
+                   (push `(export ',(intern m-name class-package)
                                   ,class-package)
                          exports)
                    (case (member-declaration-kind member)
                      (:field
-                      (push `(defmacro ,(intern name class-package) (instance)
-                               (slot-value instance ',name))
-                            wrappers))
+                      (if (member-declaration-static member)
+                          (push `(defmacro ,(intern m-name class-package) ()
+                                   `(slot-value
+                                     (closer-mop:class-prototype
+                                      (find-class ,'',name))))
+                                wrappers)
+                          (push `(defmacro ,(intern m-name class-package) (instance)
+                                   `(slot-value ,instance ,'',(intern m-name)))
+                                wrappers)))
                      (:property
-                      (push `(defmacro ,(intern name class-package) (instance)
-                               (property-invoke instance ',name))
-                            wrappers))
+                      (if (member-declaration-static member)
+                          (push `(defmacro ,(intern m-name class-package) ()
+                                   `(property-invoke
+                                     (closer-mop:class-prototype
+                                      (find-class ,'',name))
+                                     ,'',(intern m-name)))
+                                wrappers)
+                          (push `(defmacro ,(intern m-name class-package) (instance)
+                                   `(property-invoke ,instance ,'',(intern m-name)))
+                                wrappers)))
                      (:method
                          (let ((form-var (gensym "form")))
-                           (push
-                            `(defmacro ,(intern name class-package)
-                                 (&whole
-                                    ,form-var
-                                    instance
-                                    ,@(first (member-declaration-rest member)))
-                               (declare (ignorable
-                                         ,@(first
-                                            (member-declaration-rest member))))
-                               `(funcall #'method-invoke
-                                         ,instance
-                                         ,'',(intern name)
-                                         ,@(cddr ,form-var)))
-                            wrappers)))))))
+                           (if (member-declaration-static member)
+                               (push
+                                `(defmacro ,(intern m-name class-package)
+                                     (&whole
+                                        ,form-var
+                                        ,@(first (member-declaration-rest member)))
+                                   (declare (ignorable
+                                             ,@(first
+                                                (member-declaration-rest member))))
+                                   `(funcall #'method-invoke
+                                             (closer-mop:class-prototype
+                                              (find-class ,'',name))
+                                             ,'',(intern m-name)
+                                             ,@(cddr ,form-var)))
+                                wrappers)
+                               (push
+                                `(defmacro ,(intern m-name class-package)
+                                     (&whole
+                                        ,form-var
+                                        instance
+                                        ,@(first (member-declaration-rest member)))
+                                   (declare (ignorable
+                                             ,@(first
+                                                (member-declaration-rest member))))
+                                   `(funcall #'method-invoke
+                                             ,instance
+                                             ,'',(intern m-name)
+                                             ,@(cddr ,form-var)))
+                                wrappers))))))))
 
              (nconc exports wrappers))))))
 
@@ -315,13 +347,14 @@ What this does:
   (let ((options (parse-leading-options definitions))
         (declarations (parse-member-declarations definitions)))
 
-    `(prog1
+    `(progn
        (defclass ,name ,(gethash :extends options)
          ,(compute-encapsulated-class-slots options declarations)
          ,@(compute-encapsulated-class-options options declarations))
 
        ,(compute-encapsulated-class-package name options declarations)
-       ,(expand-member-definitions name options declarations))))
+       ,(expand-member-definitions name options declarations)
+       (find-class ',name))))
 
 (defmacro define-encapsulated-class (name &rest definitions)
   "Defines an encapsulated class."
