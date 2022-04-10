@@ -1,6 +1,15 @@
 ;;;;
 ;;;; encapsulated classes for Common Lisp
 ;;;;
+(defpackage #:com.kjcjohnson.kale.encapsulated-classes
+  (:use #:cl)
+  (:import-from #:trivial-package-local-nicknames
+                #:add-package-local-nickname)
+  (:export #:define-encapsulated-class
+           #:method-invoke
+           #:property-invoke))
+
+(in-package #:com.kjcjohnson.kale.encapsulated-classes)
 
 #|
 Goal: define an encapsulated class like:
@@ -25,10 +34,14 @@ Goal: define an encapsulated class like:
 
 What this does:
  * Defines a new package for the class: (current-package).MyClass
+ ** Adds MyClass as a package-local-nickname in (current-package)
+ ** This gives the public members class-level scope
  * Exports public symbols from *.MyClass
  * Defines a new class MyClass with class-a and class-b as parents
- ** This is in the parent package and the *.MyClass package
+ ** This is in the parent package
  * Adds slots for every declared field and auto-property
+ * Adds specializations to method-invoke and property-invoke as needed
+ * Defines convenience macros in *.MyClass for the public members
 
 |#
 
@@ -226,24 +239,27 @@ What this does:
 (defun expand-member-definitions (name options declarations)
   "Expands definitions into actual methods."
   (declare (ignore options))
-  (let (symbol-bindings macro-bindings)
+  (let (symbol-bindings
+        macro-bindings
+        (this-var (intern "THIS"))
+        (value-var (intern "VALUE")))
     (dolist (decl declarations)
       (let ((name (member-declaration-name decl)))
         (cond
           ((eql (member-declaration-kind decl) :field)
            (push (list (intern name)
-                       `(slot-value this ',(intern name)))
+                       `(slot-value ,this-var ',(intern name)))
                  symbol-bindings)
            (push (list (intern (concatenate 'string "THIS." (string-upcase name)))
-                       `(slot-value this ',(intern name)))
+                       `(slot-value ,this-var ',(intern name)))
                  symbol-bindings))
 
           ((eql (member-declaration-kind decl) :property)
            (push (list (intern name)
-                       `(property-invoke this ',(intern name)))
+                       `(property-invoke ,this-var ',(intern name)))
                  symbol-bindings)
            (push (list (intern (concatenate 'string "THIS." (string-upcase name)))
-                       `(property-invoke this ',(intern name)))
+                       `(property-invoke ,this-var ',(intern name)))
                  symbol-bindings))
 
           ((eql (member-declaration-kind decl) :method)
@@ -253,7 +269,7 @@ What this does:
                                   ,@(first (member-declaration-rest decl)))
                          `(declare (ignorable ,@(first (member-declaration-rest decl))))
                          ``(funcall #'method-invoke
-                                    this
+                                    ,',this-var
                                     ,'',(intern name)
                                     ,@(cdr ,form-var)))
                    macro-bindings))))))
@@ -262,7 +278,7 @@ What this does:
          ,@(map 'list
                 #'(lambda (decl)
                     `(defmethod method-invoke
-                         ((this ,name)
+                         ((,this-var ,name)
                           (name (eql ',(intern (member-declaration-name decl))))
                           &rest arguments)
                        (apply #'(lambda ,(first (member-declaration-rest decl))
@@ -275,21 +291,21 @@ What this does:
                 #'(lambda (decl)
                     `(progn
                        (defmethod property-invoke
-                           ((this ,name)
+                           ((,this-var ,name)
                             (name (eql ',(intern (member-declaration-name decl)))))
                          ,(if (not
                                (null (getf (member-declaration-rest decl) :get)))
                               (getf (member-declaration-rest decl) :get)
-                              `(slot-value this ',(intern (member-declaration-name decl)))))
+                              `(slot-value ,this-var ',(intern (member-declaration-name decl)))))
                        (defmethod (setf property-invoke)
-                           (value
-                            (this ,name)
+                           (,value-var
+                            (,this-var ,name)
                             (name (eql ',(intern (member-declaration-name decl)))))
                          ,(if (not
                                (null (getf (member-declaration-rest decl) :set)))
                               (getf (member-declaration-rest decl) :set)
-                              `(setf (slot-value this ',(intern (member-declaration-name decl)))
-                                     value)))))
+                              `(setf (slot-value ,this-var ',(intern (member-declaration-name decl)))
+                                     ,value-var)))))
                 (remove-if-not #'(lambda (d)
                                    (eql (member-declaration-kind d) :property))
                                declarations))))))
