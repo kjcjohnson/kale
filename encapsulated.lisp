@@ -205,18 +205,18 @@ What this does:
         (cond
           ((eql (member-declaration-kind decl) :field)
            (push (list (intern name)
-                       `'(slot-value this ',(intern name)))
+                       `(slot-value this ',(intern name)))
                  symbol-bindings)
            (push (list (intern (concatenate 'string "THIS." (string-upcase name)))
-                       `'(slot-value this ',(intern name)))
+                       `(slot-value this ',(intern name)))
                  symbol-bindings))
 
           ((eql (member-declaration-kind decl) :property)
            (push (list (intern name)
-                       `'(property-invoke this ',(intern name)))
+                       `(property-invoke this ',(intern name)))
                  symbol-bindings)
            (push (list (intern (concatenate 'string "THIS." (string-upcase name)))
-                       `'(property-invoke this ',(intern name)))
+                       `(property-invoke this ',(intern name)))
                  symbol-bindings))
 
           ((eql (member-declaration-kind decl) :method)
@@ -243,6 +243,28 @@ What this does:
                               arguments)))
                 (remove-if-not #'(lambda (d)
                                    (eql (member-declaration-kind d) :method))
+                               declarations))
+         ,@(map 'list
+                #'(lambda (decl)
+                    `(progn
+                       (defmethod property-invoke
+                           ((this ,name)
+                            (name (eql ',(intern (member-declaration-name decl)))))
+                         ,(if (not
+                               (null (getf (member-declaration-rest decl) :get)))
+                              (getf (member-declaration-rest decl) :get)
+                              `(slot-value this ',(intern (member-declaration-name decl)))))
+                       (defmethod (setf property-invoke)
+                           (value
+                            (this ,name)
+                            (name (eql ',(intern (member-declaration-name decl)))))
+                         ,(if (not
+                               (null (getf (member-declaration-rest decl) :set)))
+                              (getf (member-declaration-rest decl) :set)
+                              `(setf (slot-value this ',(intern (member-declaration-name decl)))
+                                     value)))))
+                (remove-if-not #'(lambda (d)
+                                   (eql (member-declaration-kind d) :property))
                                declarations))))))
   
 (defun expand-encapsulated-class-definition (name definitions)
