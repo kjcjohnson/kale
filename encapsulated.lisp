@@ -315,7 +315,7 @@ What this does:
   (let ((options (parse-leading-options definitions))
         (declarations (parse-member-declarations definitions)))
 
-    `(progn
+    `(prog1
        (defclass ,name ,(gethash :extends options)
          ,(compute-encapsulated-class-slots options declarations)
          ,@(compute-encapsulated-class-options options declarations))
@@ -325,11 +325,4 @@ What this does:
 
 (defmacro define-encapsulated-class (name &rest definitions)
   "Defines an encapsulated class."
-  (let ((options (parse-leading-options definitions))
-        (decls (parse-member-declarations definitions)))
-    (format t "For class ~a~%" name)
-    (format t "Got options:~%")
-    (maphash #'(lambda (k v) (format t " ~s = ~s~%" k v)) options)
-    (format t "Got declarations:~%")
-    (map nil #'(lambda (s) (format t " ~s~%" s)) decls))
   (expand-encapsulated-class-definition name definitions))
