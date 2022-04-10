@@ -20,7 +20,7 @@ Goal: define an encapsulated class like:
     "This is a private method"
     ...)
 
-  (xxx static xxx ...) 
+  (xxx static xxx ...)
 )
 
 What this does:
@@ -64,20 +64,20 @@ What this does:
              (when (atom superclasses) (setf superclasses (list superclasses)))
              (unless (try-add-hash options :extends superclasses)
                (error "Duplicate :extends clause in class definition"))))
-          
+
           ((eql opt :metaclass)
            (let ((metaclass (second definitions)))
              (unless (or (null metaclass) (atom metaclass))
                (error "Invalid metaclass: must be a single classname"))
              (unless (try-add-hash options :metaclass metaclass)
                (error "Duplicate :metaclass clause in class definition"))))
-          
+
           ((keywordp opt)
            (error "Unknown option in class definition: ~s" opt))
-          
+
           ((atom opt)
            (error "Class options must be keywords, but got: ~s" opt))
-          
+
           (t
            (dolist (e definitions)
              (unless (listp e)
@@ -96,52 +96,52 @@ What this does:
 
   (loop until (listp (first definitions)) doing
     (setf definitions (cddr definitions))) ; Skip over prefix options
-        
-  
+
+
   (if (endp definitions)
       (nreverse decls)
       (progn
-  
+
         (let ((raw-decl (first definitions))
               (decl (make-member-declaration :kind :method
                                              :visibility :private
                                              :static nil)))
-          
+
           ;; Valid prefixes: public private static property field method
           (let (end-of-prefixes)
             (dolist (v raw-decl)
               (cond
                 (end-of-prefixes
                  (push v (member-declaration-rest decl)))
-                
+
                 ((and (symbolp v)
                       (string= (symbol-name v) "PUBLIC"))
                  (setf (member-declaration-visibility decl) :public))
-                
+
                 ((and (symbolp v)
                       (string= (symbol-name v) "PRIVATE"))
                  (setf (member-declaration-visibility decl) :private))
-                
+
                 ((and (symbolp v)
                       (string= (symbol-name v) "STATIC"))
                  (setf (member-declaration-static decl) t))
-                
+
                 ((and (symbolp v)
                       (string= (symbol-name v) "PROPERTY"))
                  (setf (member-declaration-kind decl) :property))
-                
+
                 ((and (symbolp v)
                       (string= (symbol-name v) "FIELD"))
                  (setf (member-declaration-kind decl) :field))
-                
+
                 ((and (symbolp v)
                       (string= (symbol-name v) "METHOD"))
                  (setf (member-declaration-kind decl) :method))
-                
+
                 ((symbolp v)
                  (setf (member-declaration-name decl) (symbol-name v)
                        end-of-prefixes t))
-                
+
                 (t
                  (error "Invalid component of member declaration: ~s" v)))))
           (setf (member-declaration-rest decl)
@@ -164,7 +164,7 @@ What this does:
          (when (null (member-declaration-rest decl))
            (push (member-declaration-name decl) slots)))))
     (map 'list #'intern slots)))
-                   
+
 
 (defun compute-encapsulated-class-options (options declarations)
   "Computes the class options."
@@ -181,19 +181,46 @@ What this does:
                                          "."
                                          (string-upcase name))))
 
-    `(progn
-       (when (find-package ,class-package-name)
-         (delete-package ,class-package-name))
-       (let ((class-package (make-package ,class-package-name)))
-         (add-package-local-nickname ,(string-upcase name) class-package)
-         ,@(let (exports)
+
+    (when (find-package class-package-name)
+      (delete-package class-package-name))
+    (let ((class-package (make-package class-package-name)))
+      `(progn
+         (add-package-local-nickname ,(string-upcase name) ,class-package)
+         ,@(let (exports wrappers)
              (dolist (member declarations)
-               (if (eql (member-declaration-visibility member) :public)
-                   (push `(export (intern ,(member-declaration-name member)
-                                          class-package)
-                                  class-package)
-                         exports)))
-             exports)))))
+               (when (eql (member-declaration-visibility member) :public)
+                 (let ((name (member-declaration-name member)))
+                   (push `(export ',(intern name class-package)
+                                  ,class-package)
+                         exports)
+                   (case (member-declaration-kind member)
+                     (:field
+                      (push `(defmacro ,(intern name class-package) (instance)
+                               (slot-value instance ',name))
+                            wrappers))
+                     (:property
+                      (push `(defmacro ,(intern name class-package) (instance)
+                               (property-invoke instance ',name))
+                            wrappers))
+                     (:method
+                         (let ((form-var (gensym "form")))
+                           (push
+                            `(defmacro ,(intern name class-package)
+                                 (&whole
+                                    ,form-var
+                                    instance
+                                    ,@(first (member-declaration-rest member)))
+                               (declare (ignorable
+                                         ,@(first
+                                            (member-declaration-rest member))))
+                               `(funcall #'method-invoke
+                                         ,instance
+                                         ,'',(intern name)
+                                         ,@(cddr ,form-var)))
+                            wrappers)))))))
+
+             (nconc exports wrappers))))))
 
 
 (defun expand-member-definitions (name options declarations)
@@ -266,7 +293,7 @@ What this does:
                 (remove-if-not #'(lambda (d)
                                    (eql (member-declaration-kind d) :property))
                                declarations))))))
-  
+
 (defun expand-encapsulated-class-definition (name definitions)
   "Expands an encapsulated class definition into the real deal."
   (let ((options (parse-leading-options definitions))
