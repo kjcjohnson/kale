@@ -1,7 +1,7 @@
 ;;;;
 ;;;; encapsulated classes for Common Lisp
 ;;;;
-(defpackage #:com.kjcjohnson.kale.encapsulated-classes
+(defpackage #:com.kjcjohnson.kale.oo
   (:use #:cl)
   (:import-from #:trivial-package-local-nicknames
                 #:add-package-local-nickname)
@@ -13,7 +13,7 @@
            #:forward
            #:class))
 
-(in-package #:com.kjcjohnson.kale.encapsulated-classes)
+(in-package #:com.kjcjohnson.kale.oo)
 
 #|
 Goal: define an encapsulated class like:
@@ -66,18 +66,6 @@ What this does:
                "."
                (string-upcase class)))
 
-(defmacro forward (name &rest exports)
-  "Forward declares a class and needed public symbols."
-  (let* ((class-package-name (class-package-name name (package-name *package*)))
-         (package (find-package class-package-name)))
-
-    (unless package
-      (setf package (make-package class-package-name))
-      (format *trace-output* "~&; Created package: ~a~%" class-package-name))
-    (add-package-local-nickname (string-upcase name) class-package-name)
-    (register-class name *package*)
-    (dolist (sym exports)
-      (export (intern (symbol-name sym) package) package))))
 
 (defvar *package-classes* (make-hash-table))
 
@@ -90,6 +78,20 @@ What this does:
   (unless (packagep package)
     (setf package (find-package package)))
   (gethash package *package-classes*))
+
+
+(defmacro forward (name &rest exports)
+  "Forward declares a class and needed public symbols."
+  (let* ((class-package-name (class-package-name name (package-name *package*)))
+         (package (find-package class-package-name)))
+
+    (unless package
+      (setf package (make-package class-package-name))
+      (format *trace-output* "~&; Created package: ~a~%" class-package-name))
+    (add-package-local-nickname (string-upcase name) class-package-name)
+    (register-class name *package*)
+    (dolist (sym exports)
+      (export (intern (symbol-name sym) package) package))))
 
 (defun try-add-hash (table key value)
   "Tries to add the given key and value to the hashtable, if it doesn't exist"
@@ -122,6 +124,8 @@ What this does:
              (unless (try-add-hash options :metaclass metaclass)
                (error "Duplicate :metaclass clause in class definition"))))
 
+          ((eql opt :documentation)) ;; void for now
+          
           ((keywordp opt)
            (error "Unknown option in class definition: ~s" opt))
 
@@ -279,10 +283,10 @@ What this does:
                                  `(property-invoke
                                    (closer-mop:class-prototype
                                     (find-class ,'',name))
-                                   ,'',(intern m-name)))
+                                   ,'',(intern m-name :keyword)))
                               wrappers)
                         (push `(defmacro ,(intern m-name class-package) (instance)
-                                 `(property-invoke ,instance ,'',(intern m-name)))
+                                 `(property-invoke ,instance ,'',(intern m-name :keyword)))
                               wrappers)))
                    (:method
                        (let ((form-var (gensym "form")))
@@ -298,7 +302,7 @@ What this does:
                                  `(funcall #'method-invoke
                                            (closer-mop:class-prototype
                                             (find-class ,'',name))
-                                           ,'',(intern m-name)
+                                           ,'',(intern m-name :keyword)
                                            ,@(cddr ,form-var)))
                               wrappers)
                              (push
@@ -312,7 +316,7 @@ What this does:
                                               (member-declaration-rest member))))
                                  `(funcall #'method-invoke
                                            ,instance
-                                           ,'',(intern m-name)
+                                           ,'',(intern m-name :keyword)
                                            ,@(cddr ,form-var)))
                               wrappers))))))))
            
@@ -339,10 +343,10 @@ What this does:
 
           ((eql (member-declaration-kind decl) :property)
            (push (list (intern name)
-                       `(property-invoke ,this-var ',(intern name)))
+                       `(property-invoke ,this-var ',(intern name :keyword)))
                  symbol-bindings)
            (push (list (intern (concatenate 'string "THIS." (string-upcase name)))
-                       `(property-invoke ,this-var ',(intern name)))
+                       `(property-invoke ,this-var ',(intern name :keyword)))
                  symbol-bindings))
 
           ((eql (member-declaration-kind decl) :method)
@@ -353,7 +357,7 @@ What this does:
                          `(declare (ignorable ,@(first (member-declaration-rest decl))))
                          ``(funcall #'method-invoke
                                     ,',this-var
-                                    ,'',(intern name)
+                                    ,'',(intern name :keyword)
                                     ,@(cdr ,form-var)))
                    macro-bindings))))))
     `(symbol-macrolet (,@symbol-bindings)
@@ -362,7 +366,8 @@ What this does:
                 #'(lambda (decl)
                     `(defmethod method-invoke
                          ((,this-var ,name)
-                          (name (eql ',(intern (member-declaration-name decl))))
+                          (name (eql ',(intern (member-declaration-name decl)
+                                        :keyword)))
                           &rest arguments)
                        (apply #'(lambda ,(first (member-declaration-rest decl))
                                   ,@(rest (member-declaration-rest decl)))
@@ -375,7 +380,8 @@ What this does:
                     `(progn
                        (defmethod property-invoke
                            ((,this-var ,name)
-                            (name (eql ',(intern (member-declaration-name decl)))))
+                            (name (eql ',(intern (member-declaration-name decl)
+                                          :keyword))))
                          ,(if (not
                                (null (getf (member-declaration-rest decl) :get)))
                               (getf (member-declaration-rest decl) :get)
@@ -383,7 +389,8 @@ What this does:
                        (defmethod (setf property-invoke)
                            (,value-var
                             (,this-var ,name)
-                            (name (eql ',(intern (member-declaration-name decl)))))
+                            (name (eql ',(intern (member-declaration-name decl)
+                                          :keyword))))
                          ,(if (not
                                (null (getf (member-declaration-rest decl) :set)))
                               (getf (member-declaration-rest decl) :set)
@@ -418,6 +425,13 @@ What this does:
     (register-class name *package*)
     
     `(progn
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (unless (find-package ,class-package-name)
+           (make-package ,class-package-name)
+           (format *trace-output* "~&; Created package: ~a~%" ,class-package-name))
+         (add-package-local-nickname ,(string-upcase name) ,class-package-name)
+         (register-class ',name *package*))
+       
        (defclass ,name ,(gethash :extends options)
          ,(compute-encapsulated-class-slots options declarations)
          ,@(compute-encapsulated-class-options options declarations))
@@ -434,13 +448,28 @@ What this does:
   "Defines an encapsulated class."
   (expand-encapsulated-class-definition name definitions))
 
-(defun import-class-from (class package)
-  (format *trace-output* "; Importing ~s from ~s~%" class package)
-  (trivial-package-local-nicknames:add-package-local-nickname
-    (string-upcase class)
-    (class-package-name class (symbol-name package))))
+(defun import-class-from (class package &key as into)
+  (when (null into) (setf into *package*))
+  (let* ((nickname (if (null as)
+                       (string-upcase class)
+                       (concatenate 'string (string-upcase as) "." (string-upcase class))))
+         (realname (class-package-name class (package-name (find-package package))))
+         (existing (assoc nickname
+                          (trivial-package-local-nicknames:package-local-nicknames into)
+                          :test #'string=)))
+    (if (null existing)
+        (progn
+          (format *trace-output* "; Importing ~s from ~s~%" class package)
+          (trivial-package-local-nicknames:add-package-local-nickname
+           nickname
+           realname
+           into))
+        (unless (string= (package-name (cdr existing)) realname)
+          (warn "Cannot import ~s as ~s into ~s due to existing nickname for ~s"
+                class nickname into (cdr existing))))))
   
-(defmacro import-classes-from (package)
-  `(let ((mapping (classes-in-package ',package)))
-     (dolist (c mapping)
-       (import-class-from c ',package))))
+(defmacro import-classes-from (package &key as into)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     (let ((mapping (classes-in-package ',package)))
+       (dolist (c mapping)
+         (import-class-from c ',package :as ',as :into ,(if (null into) '*package* into))))))
