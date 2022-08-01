@@ -79,6 +79,11 @@ What this does:
     (setf package (find-package package)))
   (gethash package *package-classes*))
 
+(defun %filter-ignorable (vars)
+  "Filters a list of variables to ignore, removing special lambda list symbols."
+  (remove-if #'(lambda (s)
+                   (find s lambda-list-keywords))
+               vars))
 
 (defmacro forward (name &rest exports)
   "Forward declares a class and needed public symbols."
@@ -125,7 +130,7 @@ What this does:
                (error "Duplicate :metaclass clause in class definition"))))
 
           ((eql opt :documentation)) ;; void for now
-          
+
           ((keywordp opt)
            (error "Unknown option in class definition: ~s" opt))
 
@@ -196,7 +201,7 @@ What this does:
                       (string= (symbol-name v) "CONSTRUCTOR"))
                  (setf (member-declaration-kind decl) :constructor
                        end-of-prefixes t))
-                
+
                 ((symbolp v)
                  (setf (member-declaration-name decl) (symbol-name v)
                        end-of-prefixes t))
@@ -239,7 +244,7 @@ What this does:
 (defun compute-encapsulated-class-package (name class-package-name options declarations)
   "Computes the steps needed to (re-)create the class package and symbols."
   (declare (ignore options))
-  
+
   (let ((class-package (find-package class-package-name)))
     `(progn
        ,@(let (exports wrappers)
@@ -260,12 +265,13 @@ What this does:
                                   ,form-var
                                   ,@(first (member-declaration-rest member)))
                              (declare (ignorable
-                                       ,@(first
-                                          (member-declaration-rest member))))
+                                       ,@(%filter-ignorable
+                                          (first
+                                           (member-declaration-rest member)))))
                              `(funcall #'make-instance
                                        ,'',name
                                        :constructor-args (list ,@(cdr ,form-var))))
-                          
+
                           wrappers)))
                    (:field
                     (if (member-declaration-static member)
@@ -297,8 +303,9 @@ What this does:
                                       ,form-var
                                       ,@(first (member-declaration-rest member)))
                                  (declare (ignorable
-                                           ,@(first
-                                              (member-declaration-rest member))))
+                                           ,@(%filter-ignorable
+                                              (first
+                                               (member-declaration-rest member)))))
                                  `(funcall #'method-invoke
                                            (closer-mop:class-prototype
                                             (find-class ,'',name))
@@ -312,14 +319,15 @@ What this does:
                                       instance
                                       ,@(first (member-declaration-rest member)))
                                  (declare (ignorable
-                                           ,@(first
-                                              (member-declaration-rest member))))
+                                           ,@(%filter-ignorable
+                                              (first
+                                               (member-declaration-rest member)))))
                                  `(funcall #'method-invoke
                                            ,instance
                                            ,'',(intern m-name :keyword)
                                            ,@(cddr ,form-var)))
                               wrappers))))))))
-           
+
            (nconc exports wrappers)))))
 
 
@@ -354,7 +362,9 @@ What this does:
              (push (list (intern name)
                          `(&whole ,form-var
                                   ,@(first (member-declaration-rest decl)))
-                         `(declare (ignorable ,@(first (member-declaration-rest decl))))
+                         `(declare (ignorable
+                                    ,@(%filter-ignorable
+                                       (first (member-declaration-rest decl)))))
                          ``(funcall #'method-invoke
                                     ,',this-var
                                     ,'',(intern name :keyword)
@@ -369,9 +379,14 @@ What this does:
                           (name (eql ',(intern (member-declaration-name decl)
                                         :keyword)))
                           &rest arguments)
-                       (apply #'(lambda ,(first (member-declaration-rest decl))
-                                  ,@(rest (member-declaration-rest decl)))
-                              arguments)))
+                       ,@(if (eql (first (rest (member-declaration-rest decl)))
+                                 :prototype)
+                             `((declare (ignore arguments))
+                               (error "Not implemented."))
+                             `((apply #'(lambda ,(first
+                                                  (member-declaration-rest decl))
+                                          ,@(rest (member-declaration-rest decl)))
+                                      arguments)))))
                 (remove-if-not #'(lambda (d)
                                    (eql (member-declaration-kind d) :method))
                                declarations))
@@ -411,7 +426,7 @@ What this does:
                 (remove-if-not #'(lambda (d)
                                    (eql (member-declaration-kind d) :constructor))
                                declarations))))))
-                              
+
 (defun expand-encapsulated-class-definition (name definitions)
   "Expands an encapsulated class definition into the real deal."
   (let ((options (parse-leading-options definitions))
@@ -423,7 +438,7 @@ What this does:
       (format *trace-output* "~&; Created package: ~a~%" class-package-name))
     (add-package-local-nickname (string-upcase name) class-package-name)
     (register-class name *package*)
-    
+
     `(progn
        (eval-when (:compile-toplevel :load-toplevel :execute)
          (unless (find-package ,class-package-name)
@@ -431,7 +446,7 @@ What this does:
            (format *trace-output* "~&; Created package: ~a~%" ,class-package-name))
          (add-package-local-nickname ,(string-upcase name) ,class-package-name)
          (register-class ',name *package*))
-       
+
        (defclass ,name ,(gethash :extends options)
          ,(compute-encapsulated-class-slots options declarations)
          ,@(compute-encapsulated-class-options options declarations))
@@ -467,7 +482,7 @@ What this does:
         (unless (string= (package-name (cdr existing)) realname)
           (warn "Cannot import ~s as ~s into ~s due to existing nickname for ~s"
                 class nickname into (cdr existing))))))
-  
+
 (defmacro import-classes-from (package &key as into)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (let ((mapping (classes-in-package ',package)))

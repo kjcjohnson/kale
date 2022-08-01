@@ -6,12 +6,12 @@
 (kl/oo:define-encapsulated-class &enumerator
 
   (public property current :get (error "Not implemented"))
-  (public move-next () (error "Not implemented"))
-  (public reset () (error "Not implemented")))
+  (public move-next () :prototype)
+  (public reset () :prototype))
 
 (kl/oo:define-encapsulated-class &enumerable
     
-  (public get-enumerator () (error "Not implemented")))
+  (public get-enumerator () :prototype))
 
 ;;;
 ;;; Implement the generic enumerator protocol

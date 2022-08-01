@@ -7,11 +7,11 @@
   :documentation "Dictionary abstraction."
   (public property key-list :get (error "Not implemented") :set (error "RO"))
   (public property value-list :get (error "Not implemented") :set (error "RO"))
-  (public add (key value) (error "Not implemented"))
-  (public contains-key (key) (error "Not implemented"))
-  (public remove (key) (error "Not implemented"))
-  (public try-get-value (key) (error "Not implemented")) ; Deprecated - use 'get'
-  (public get (key) (error "Not implemented")))
+  (public add (key value) :prototype)
+  (public contains-key (key) :prototype)
+  (public remove (key) :prototype)
+  (public try-get-value (key) :prototype) ; Deprecated - use 'get'
+  (public get (key) :prototype))
 
 ;;;
 ;;; Default implementation with hashtable backing
@@ -42,13 +42,19 @@
 
   (public property key-list
           :get (let ((ks))
-                 (maphash #'(lambda (k v) (push k ks)) _hashtable)
+                 (maphash #'(lambda (k v)
+                              (declare (ignore v))
+                              (push k ks))
+                          _hashtable)
                  (nreverse ks))
           :set (error "RO"))
 
   (public property value-list
           :get (let ((vs))
-                 (maphash #'(lambda (k v) (push v vs)) _hashtable)
+                 (maphash #'(lambda (k v)
+                              (declare (ignore k))
+                              (push v vs))
+                          _hashtable)
                  (nreverse vs))
           :set (error "RO")))
 
