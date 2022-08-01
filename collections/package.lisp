@@ -4,7 +4,8 @@
 (defpackage #:com.kjcjohnson.kale.collections
   (:use #:cl)
 
-  (:shadow #:remove)
+  (:shadow #:remove
+           #:get)
   
   (:local-nicknames (#:kl #:com.kjcjohnson.kale)
                     (#:kl/oo #:com.kjcjohnson.kale.oo)))

@@ -4,7 +4,9 @@
 (defpackage #:com.kjcjohnson.kale
   (:use #:cl)
 
-  (:export #:foreach
+  (:export #:equals
+           #:get-hash-code
+           #:foreach
            #:enumerator-get-enumerator
            #:enumerator-move-next
            #:enumerator-current))

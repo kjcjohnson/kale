@@ -10,7 +10,8 @@
   (public add (key value) (error "Not implemented"))
   (public contains-key (key) (error "Not implemented"))
   (public remove (key) (error "Not implemented"))
-  (public try-get-value (key) (error "Not implemented")))
+  (public try-get-value (key) (error "Not implemented")) ; Deprecated - use 'get'
+  (public get (key) (error "Not implemented")))
 
 ;;;
 ;;; Default implementation with hashtable backing
@@ -36,6 +37,9 @@
   (public try-get-value (key)
           (gethash key _hashtable))
 
+  (public get (key)
+          (gethash key _hashtable))
+
   (public property key-list
           :get (let ((ks))
                  (maphash #'(lambda (k v) (push k ks)) _hashtable)
@@ -47,3 +51,25 @@
                  (maphash #'(lambda (k v) (push v vs)) _hashtable)
                  (nreverse vs))
           :set (error "RO")))
+
+(kl/oo:define-encapsulated-class alist-dictionary :extends &dictionary
+  :documentation "Dictionary implemented via an alist"
+  (private field _alist)
+
+  (public constructor ()
+          (setf _alist (list)))
+
+  (public add (key value)
+          (let ((res (assoc key _alist :test #'kl:equals)))
+            (if (null res)
+                (setf _alist (acons key value _alist))
+                (setf (cdr res) value))))
+
+  (public contains-key (key)
+          (assoc key _alist :test #'kl:equals))
+
+  (public get (key)
+          (let ((res (assoc key _alist :test #'kl:equals)))
+            (values (cdr res) res))))
+
+
